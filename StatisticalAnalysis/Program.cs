@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using SoftArtisans.OfficeWriter.ExcelWriter;
+using MathNet.Numerics.Statistics;
 
 namespace StatisticalAnalysis
 {
@@ -20,6 +21,8 @@ namespace StatisticalAnalysis
             Worksheet sheet = workbook.Worksheets.CreateWorksheet("Data");
 
             var shipTimes = new List<double>();
+            var orderPrices = new List<double>();
+            var orderCount = new List<double>();
 
             using (var db = new DatabaseEntities())
             {
@@ -45,39 +48,61 @@ namespace StatisticalAnalysis
 
                     // Calculate the time from order to delivery
                     if ((item.Shipped_Date != null) && (item.Order_Date != null))
-                        shipTimes.Add((double)(item.Shipped_Date.Value.Day - item.Order_Date.Value.Day));
+                        shipTimes.Add((double)(item.Shipped_Date.Value.Subtract(item.Order_Date.Value)).TotalDays);
+
+                    // Calculate the price of each order
+                    decimal totalPrice = 0;
+                    foreach (Order_Detail detail in item.Order_Details)
+                        totalPrice += detail.Unit_Price;
+                    
+                    orderPrices.Add((double)totalPrice);
+
+                    orderCount.Add(item.Order_Details.Count);
 
                     i++;
                 }
 
             }
 
-            // Throw delivery time into the histogram
-            MathNet.Numerics.Statistics.Histogram hist = new MathNet.Numerics.Statistics.Histogram(shipTimes, 50);
+            sheet = workbook.Worksheets.CreateWorksheet("DeliveryTime");
+            WriteHistogramToSheet(sheet, shipTimes);
 
-            sheet[0, 5].Value = "Count";
-            sheet[0, 6].Value = "Width";
-            sheet[0, 7].Value = "LowerBound";
-            sheet[0, 8].Value = "UpperBound";
-            
+            sheet = workbook.Worksheets.CreateWorksheet("OrderValue");
+            WriteHistogramToSheet(sheet, orderPrices);
+
+            sheet = workbook.Worksheets.CreateWorksheet("OrderCount");
+            WriteHistogramToSheet(sheet, orderCount);
+
+            app.Save(workbook, "C:\\Users\\sethm\\Desktop\\HelloWorld.xlsx");
+
+        }
+
+        private static void WriteHistogramToSheet(Worksheet sheet, IEnumerable<double> data)
+        {
+            // Throw delivery time into the histogram
+            Histogram hist = new Histogram(data, 60);
+
+            sheet[0, 0].Value = "Count";
+            sheet[0, 1].Value = "Width";
+            sheet[0, 2].Value = "LowerBound";
+            sheet[0, 3].Value = "UpperBound";
+
             // Write the histogram data out to Excel
             for (int i = 1; i < hist.BucketCount; i++)
             {
-                sheet[i, 5].Value = hist[i].Count;
-                sheet[i, 6].Value = hist[i].Width;
-                sheet[i, 7].Value = hist[i].LowerBound;
-                sheet[i, 8].Value = hist[i].UpperBound;
+                sheet[i, 0].Value = hist[i].Count;
+                sheet[i, 1].Value = hist[i].Width;
+                sheet[i, 2].Value = hist[i].LowerBound;
+                sheet[i, 3].Value = hist[i].UpperBound;
             }
 
             // Plot the histogram data
             Charts charts = sheet.Charts;
-            Anchor anchor = sheet.CreateAnchor(4, 11, 0, 0);
+            Anchor anchor = sheet.CreateAnchor(4, 6, 0, 0);
             Chart chart = charts.CreateChart(ChartType.Column.Clustered, anchor);
             SeriesCollection collection = chart.SeriesCollection;
-            collection.CategoryData = String.Format("{0}!{1}:{2}", sheet.Name, sheet.Cells[0, 5].Name, sheet.Cells[0, 5].Name);
-            Series series = collection.CreateSeries(String.Format("{0}!{1}:{2}", sheet.Name, sheet.Cells[1, 5].Name, sheet.Cells[50, 5].Name));
-
-            app.Save(workbook, "C:\\Users\\sethm\\Desktop\\HelloWorld.xlsx");
+            collection.CategoryData = String.Format("{0}!{1}:{2}", sheet.Name, sheet.Cells[1, 2].Name, sheet.Cells[50, 2].Name);
+            Series series = collection.CreateSeries(String.Format("{0}!{1}:{2}", sheet.Name, sheet.Cells[1, 0].Name, sheet.Cells[50, 0].Name));
 
         }
     }
